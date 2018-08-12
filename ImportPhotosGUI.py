@@ -7,16 +7,55 @@ import tkinter
 import datetime
 from shutil import copyfile
 import json
-#import appdirs     # Manage configuration file path
+import appdirs     # Manage configuration file path
 import os.path
+import os
+import pathlib
+import shutil
 
-def copyFiles(src, tgt):
-    print("Coping the files...")
-    #copyfile(src, tgt)
+import photodump
 
-def getFilesList():
-    print('Get the files list...')
-    return []
+base31 = 'TE8CA6ZNFGXBLWU79YHV3R4KS5MPJ2D'
+
+def copyFile(src, tgt):
+    tgtDir = os.path.dirname(tgt)
+    if not os.path.isdir(tgtDir):
+        pathlib.Path(tgtDir).mkdir(parents=True)
+    shutil.copyfile(src, tgt)
+    
+def getFilesList(sourceDir):
+    return photodump.listFiles(sourceDir)
+
+def renameFile(fileName):
+    imageParameters = photodump.getImageParameters(fileName)
+    # cameraID
+    camerasList = {'Canon EOS 20D':10,
+                       'Canon EOS 1200D':20,
+                       'Canon EOS 1D Mark IV': 30,
+                       'Canon EOS 1D Mark III:': 40}
+    cameraID = camerasList[imageParameters['Camera']]
+    datePhoto = datetime.datetime.strptime(imageParameters['Date Time Original'], '%Y:%m:%d %H:%M:%S')
+    # year
+    year = datePhoto.strftime('%y')
+    # month
+    month = datePhoto.strftime('%m')
+    # imageID in four digit
+    imageNumber = imageParameters['Image Number']
+
+    _, fileExtension = os.path.splitext(fileName)
+
+    newFileName = str(cameraID) + year + month + imageNumber
+    base10='0123456789'
+    #base31='23456789ABCDEFGHJKLMNPRSTUVWXYZ'
+    base31 = 'TE8CA6ZNFGXBLWU79YHV3R4KS5MPJ2D'
+
+    newFileName = photodump.convertBaseNtoM(newFileName, base10, base31)
+    
+    return newFileName[0:3] + '_' + newFileName[3:] + fileExtension
+
+def setDestinationDirectory(tgtDir):
+    today= datetime.dateTime.now()
+    
 
 class importPhotosGUI:
     def __init__(self, master):
@@ -100,12 +139,10 @@ class importPhotosGUI:
     def displayConfig(self):
         
         def validateConfig(win, newSrcDir, newTgtDir):
-            print("config update {}, {}".format(newTgtDir, newSrcDir))
             self.sourceDir = newSrcDir
             self.targetDir = newTgtDir
             win.destroy()
         
-        print("Configuration")
         top = tkinter.Toplevel()
         top.title("About this application...")
         
@@ -134,11 +171,10 @@ class importPhotosGUI:
 
     def getActualDate(self):
         today = datetime.datetime.now() 
-        self.actualMonth = '{:%m}-'.format(today)
-        self.actualYear =  '{:%Y}-'.format(today)
+        self.actualMonth = '{:%m}'.format(today)
+        self.actualYear =  '{:%Y}'.format(today)
 
     def displayAbout(self):
-        print("About")
         aboutMessage = 'Application under GPL'
         top = tkinter.Toplevel()
         top.title("About this application...")
@@ -151,15 +187,16 @@ class importPhotosGUI:
         self.centerWindow(top)
 
     def readConfigurationFile(self):
-        print('Reads configuration File...')
         # get conf file name and path
-        configFileName = 'example.json'
+        configFileName = appdirs.user_config_dir(appname='DumpPhotoGUI', appauthor='Hansastro') + '/' + 'config.json'
         data = {'project name': 'XX-Test',
  'source directory': 'C:\\Users\\TH51B4\\Documents\\Python\\Source',
  'target directory': 'C:\\Users\\TH51B4\\Documents\\Python\\Target'}
         #check if the file exist, if not create it.
         if not os.path.isfile(configFileName):
-            with open(configFileName, 'w') as configFile:
+            if not os.path.exists(appdirs.user_config_dir(appname='DumpPhotoGUI', appauthor='Hansastro')):
+                os.makedirs(appdirs.user_config_dir(appname='DumpPhotoGUI', appauthor='Hansastro'))
+            with open(configFileName, 'w+') as configFile:
                 json.dump(data, configFile)
         else:
             with open(configFileName) as configFile:
@@ -174,23 +211,28 @@ class importPhotosGUI:
         data = {'project name': self.projectName,
                 'source directory': self.sourceDir,
                 'target directory': self.targetDir}
-        with open('example.json', 'w') as configFile:
+        confFileName = appdirs.user_config_dir(appname='DumpPhotoGUI', appauthor='Hansastro') + '/' + 'config.json'
+        with open(confFileName, 'w') as configFile:
                 json.dump(data, configFile, indent=4)
                 
-        print("Project name: {}\nSrc Dir: {}\nTgt Dir: {}".format(self.projectName, self.sourceDir, self.targetDir))
-    
     def resetProjectName(self):
-        print('Reset Project Name')
         self.EntryProjectName.delete(0, tkinter.END)
-        self.EntryProjectName.insert(0, self.actualMonth)
+        self.EntryProjectName.insert(0, self.actualMonth + '-')
         
     def importPhotos(self):
-
         self.projectName = self.EntryProjectName.get()
         self.updateConfigurationFile()
-        filesList = getFilesList()
-        self.labelProgress['text'] = "100%"
-        #self.master.destroy()
+        filesList = getFilesList(self.sourceDir)
+        amountOfFile = len(filesList)
+        cpt = 0
+        for f in filesList:
+            newFileName = renameFile(f)
+            cpt += 1
+            percentStr = '{:.0f}% - {}/{}'.format(cpt/amountOfFile*100, cpt, amountOfFile)
+            self.labelProgress['text'] = percentStr
+            self.master.update_idletasks()
+            copyFile(f, self.targetDir + '/' + self.actualYear + '/' + self.projectName + '/to_be_sorted/' + newFileName)
+        self.master.destroy()
     
     def quit(self):
         self.updateConfigurationFile()
